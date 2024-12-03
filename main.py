@@ -171,15 +171,10 @@ class MainWindow(QMainWindow):
 
         try:
             values = data.split('/') 
-            if len(values) == 4:
+            if len(values) == 2:
                 self.data_graph.append(int(values[0]))
                 self.data_graph_line2.append(int(values[1]))
-                self.data_graph_2.append(int(values[2]))
-                self.data_graph_3.append(int(values[3]))
                 self.time_sent += 50 # Thời gian delay trên vi điều khiển
-                self.time_graph.append(self.time_sent)
-                self.time_graph_2.append(self.time_sent)
-                self.time_graph_3.append(self.time_sent)
                 #print(values)
             else:
                 print("Error: Invalid data format")
