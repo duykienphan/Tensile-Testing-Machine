@@ -3,6 +3,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtCore import QThread, pyqtSignal, QObject, QTimer
 from gui import Ui_MainWindow
 import time
+import csv
 import serial.tools.list_ports
 import pyqtgraph as pg
 
@@ -40,26 +41,23 @@ class MainWindow(QMainWindow):
 
         # Đồ thị PyQtGraph 1
         self.uic.graphicsView.setBackground("w")
-        self.curve = self.uic.graphicsView.plot(pen=pg.mkPen(color='r', width=2))
+        self.curve = self.uic.graphicsView.plot(pen=pg.mkPen(color='r', width=2, style=pg.QtCore.Qt.SolidLine), symbol='o', symbolSize=8, symbolBrush='r')
         self.curve_line2 = self.uic.graphicsView.plot(pen=pg.mkPen(color='b', width=2))
-        self.uic.graphicsView.setLabel('left', 'Value')
-        self.uic.graphicsView.setLabel('bottom', 'Time (ms)')
+        self.uic.graphicsView.setLabel('left', 'Force (mN)')
+        self.uic.graphicsView.setLabel('bottom', 'Distance (mm)')
         legend = self.uic.graphicsView.addLegend()
-        legend.addItem(self.curve, "Pressure")
-        legend.addItem(self.curve_line2, "Voltage")
+        legend.addItem(self.curve, "Force")
+        legend.addItem(self.curve_line2, "Resistance")
 
         self.COM_PORT = ""
-        self.BAUD_RATE = 115200
+        self.BAUD_RATE = 9600
         self.PORT_LIST, self.DRIVER_LIST = self.esp.get_com_port()
         self.serialCom = None
-        self.data_graph = []
-        self.data_graph_line2 = []
-        self.data_graph_2 = []
-        self.data_graph_3 = []
-        self.time_graph = []
-        self.time_graph_2 = []
-        self.time_graph_3 = []
+        self.data_force = []
+        self.data_distance = []
+        self.data_time = []
         self.time_sent = 0
+        self.csv_data = []
 
         self.uic.comboBox.addItems(self.PORT_LIST)
         self.uic.comboBox_2.addItems(["4800", "9600", "14400", "19200", "28800", "38400", "57600", "115200"])
@@ -76,6 +74,7 @@ class MainWindow(QMainWindow):
         self.uic.actionClear_Graph_1.triggered.connect(self.clear_graph_1)
         self.uic.actionClear_All.triggered.connect(self.clear_all)
         self.uic.actionExit.triggered.connect(self.exit_application)
+        self.uic.actionSave_as_2.triggered.connect(self.csv_save)
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_plot)
@@ -83,25 +82,24 @@ class MainWindow(QMainWindow):
     def clear_graph_1(self):
         self.curve.clear()
         self.curve_line2.clear()
-        self.data_graph = []
-        self.data_graph_line2 = []
-        self.time_graph = []
+        self.data_force = []
+        self.data_distance = []
+        self.data_time = []
 
     def clear_all(self):
         self.curve.clear()
         self.curve_line2.clear()
 
-        self.data_graph = []
-        self.data_graph_line2 = []
+        self.data_force = []
+        self.data_distance = []
 
     def update_plot(self):
-        if len(self.data_graph) > 100:
-            self.data_graph.pop(0)
-            self.data_graph_line2.pop(0)
-            self.time_graph.pop(0)
-            #print(self.data_graph)
-        self.curve.setData(self.time_graph, self.data_graph)
-        self.curve_line2.setData(self.time_graph, self.data_graph_line2)
+        if len(self.data_force) > 100:
+            self.data_force.pop(0)
+            self.data_distance.pop(0)
+            self.data_time.pop(0)
+            #print(self.data_force)
+        self.curve.setData(self.data_distance, self.data_force)
 
     def btn_send_serial_monitor(self):
         data = self.uic.lineEdit.text()
@@ -168,20 +166,41 @@ class MainWindow(QMainWindow):
     def handle_data_received(self, data):
         #print(data)
         self.serial_monitor(data)
-
+        self.csv_data.append(data)
         try:
-            values = data.split('/') 
-            if len(values) == 2:
-                self.data_graph.append(int(values[0]))
-                self.data_graph_line2.append(int(values[1]))
+            values = data.split(',') 
+            if len(values) == 3:
+                if len(values[0]) < 5:
+                    self.data_force.append(int(values[0]))
+                else:
+                    self.data_force.append(0)
+                self.data_distance.append(int(values[1]))
+                self.data_time.append(int(values[2]))
                 self.time_sent += 50 # Thời gian delay trên vi điều khiển
                 #print(values)
             else:
                 print("Error: Invalid data format")
                 self.serial_monitor("Error: Invalid data format")
-        except:
-            print("Error parsing data")
-            self.serial_monitor("Error parsing data")
+        except Exception as e:
+            error_message = f"Error parsing data: {e}"
+            print(error_message)
+            self.serial_monitor(error_message)
+        
+    def csv_save(self):
+        file_name = time.strftime("data_%Y%m%d_%H%M%S.csv")
+        try:
+            with open(file_name, mode='w', newline='', encoding='utf-8') as file:
+                writer = csv.writer(file)
+
+                # Process each string in csv_data
+                for row in self.csv_data:
+                    writer.writerow(row.split(','))
+            error_message = f"Data saved to {file_name} successfully."
+            print(error_message)
+            self.serial_monitor(error_message)
+        except Exception as e:
+            error_message = f"Error saving to CSV: {e}"
+            self.serial_monitor(error_message)
     
     def open_serial_monitor(self):
         self.uic.groupBox.setVisible(True)
@@ -190,8 +209,9 @@ class MainWindow(QMainWindow):
         self.uic.groupBox.setVisible(False)
 
     def serial_monitor(self, text):
-        display_text = str(time.strftime("%H:%M:%S", time.localtime())) + " -> " + text
+        display_text = str(time.strftime('%H:%M:%S', time.localtime())) + "->" + str(text)
         self.uic.textEdit.append(display_text)
+
 
     def show(self):
         self.main_win.show()
